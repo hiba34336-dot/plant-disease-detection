@@ -2,5 +2,4 @@ streamlit
 numpy
 Pillow
 requests
-python-multipart
 tensorflow-cpu
