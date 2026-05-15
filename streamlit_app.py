@@ -1,9 +1,7 @@
-import os
 import streamlit as st
 import numpy as np
 from PIL import Image
-import tensorflow as tf
-from tensorflow.keras.applications.efficientnet import preprocess_input
+import onnxruntime as ort
 
 st.set_page_config(
     page_title="🌿 Plant Disease Detector",
@@ -14,12 +12,12 @@ st.set_page_config(
 
 @st.cache_resource
 def load_model():
-    model = tf.keras.models.load_model(
-        "model/plant_disease_best.keras"
+    session = ort.InferenceSession(
+        "model/plant_disease.onnx"
     )
-    return model
+    return session
 
-model = load_model()
+session = load_model()
 
 CLASS_NAMES = [
     'Apple___Apple_scab', 'Apple___Black_rot',
@@ -120,13 +118,21 @@ disease_info = {
     },
 }
 
-def predict_disease(image):
+def preprocess_image(image):
+    # Resize to 224x224
     image = image.convert("RGB")
     image = image.resize((224, 224))
-    img_array = np.array(image)
+    img_array = np.array(image).astype(np.float32)
     img_array = np.expand_dims(img_array, axis=0)
-    img_array = preprocess_input(img_array)
-    predictions = model.predict(img_array)
+    # EfficientNet preprocessing
+    img_array = (img_array - 127.5) / 127.5
+    return img_array
+
+def predict_disease(image):
+    img_array = preprocess_image(image)
+    # Run ONNX inference
+    input_name = session.get_inputs()[0].name
+    predictions = session.run(None, {input_name: img_array})[0]
     predicted_index = np.argmax(predictions[0])
     confidence = float(np.max(predictions[0])) * 100
     disease_name = CLASS_NAMES[predicted_index]
@@ -251,7 +257,7 @@ st.markdown("""
 st.markdown("""
 <div class="page-title">
     <h1>🔬 Plant Disease Detection</h1>
-    <p>Upload a plant leaf image and get instant AI-powered disease diagnosis</p>
+    <p>Upload a plant leaf image and get instant AI-powered diagnosis</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -305,7 +311,7 @@ with right_col:
 
     if not uploaded_file:
         st.markdown("""
-        <div style="text-align:center;padding:60px 20px;color:#95d5b2">
+        <div style="text-align:center;padding:60px 20px">
             <div style="font-size:4em">🔬</div>
             <div style="color:#95d5b2;font-size:1.1em;
                  font-weight:600;margin-top:15px">
@@ -347,8 +353,11 @@ with right_col:
                 st.markdown("""
                 <div class="result-healthy">
                     <div style="font-size:2.5em">✅</div>
-                    <div class="result-healthy-text">Plant is Healthy!</div>
-                    <div style="color:#40916c;font-size:0.9em;margin-top:5px">
+                    <div class="result-healthy-text">
+                        Plant is Healthy!
+                    </div>
+                    <div style="color:#40916c;font-size:0.9em;
+                         margin-top:5px">
                         No disease detected. Keep up the good care!
                     </div>
                 </div>
@@ -360,8 +369,9 @@ with right_col:
                     <div class="result-disease-text">
                         {result['disease']} Detected
                     </div>
-                    <div style="color:#e74c3c;font-size:0.9em;margin-top:5px">
-                        Disease identified — treatment advice below
+                    <div style="color:#e74c3c;font-size:0.9em;
+                         margin-top:5px">
+                        Disease identified — treatment below
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -369,10 +379,12 @@ with right_col:
             st.markdown(f"""
             <div class="confidence-box">
                 <div style="display:flex;justify-content:space-between">
-                    <span style="color:#1b4332;font-size:0.85em;font-weight:600">
+                    <span style="color:#1b4332;font-size:0.85em;
+                          font-weight:600">
                         🎯 Confidence Score
                     </span>
-                    <span style="color:#40916c;font-size:0.85em;font-weight:700">
+                    <span style="color:#40916c;font-size:0.85em;
+                          font-weight:700">
                         {result['confidence']:.2f}%
                     </span>
                 </div>
@@ -381,43 +393,70 @@ with right_col:
             st.progress(int(result['confidence']))
 
             if not result['is_healthy']:
-                disease_key = f"{result['plant']} {result['disease']}"
+                disease_key = (
+                    f"{result['plant']} {result['disease']}"
+                )
                 info = disease_info.get(disease_key, None)
                 if info:
                     st.markdown(f"""
                     <div class="info-grid">
                         <div class="info-card">
                             <div class="info-title">🔬 Cause</div>
-                            <div class="info-text">{info['cause']}</div>
+                            <div class="info-text">
+                                {info['cause']}
+                            </div>
                         </div>
                         <div class="info-card-red">
-                            <div class="info-title-red">⚠️ Severity</div>
-                            <div class="info-text">{info['severity']}</div>
+                            <div class="info-title-red">
+                                ⚠️ Severity
+                            </div>
+                            <div class="info-text">
+                                {info['severity']}
+                            </div>
                         </div>
                         <div class="info-card-red">
-                            <div class="info-title-red">👁️ Symptoms</div>
-                            <div class="info-text">{info['symptoms']}</div>
+                            <div class="info-title-red">
+                                👁️ Symptoms
+                            </div>
+                            <div class="info-text">
+                                {info['symptoms']}
+                            </div>
                         </div>
                         <div class="info-card">
-                            <div class="info-title">💊 Treatment</div>
-                            <div class="info-text">{info['treatment']}</div>
+                            <div class="info-title">
+                                💊 Treatment
+                            </div>
+                            <div class="info-text">
+                                {info['treatment']}
+                            </div>
                         </div>
                         <div class="info-card"
                              style="grid-column:span 2">
-                            <div class="info-title">🛡️ Prevention</div>
-                            <div class="info-text">{info['prevention']}</div>
+                            <div class="info-title">
+                                🛡️ Prevention
+                            </div>
+                            <div class="info-text">
+                                {info['prevention']}
+                            </div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
-                    st.info(f"Consult an agricultural expert for {result['disease']} treatment.")
+                    st.info(
+                        f"Consult an agricultural expert "
+                        f"for {result['disease']} treatment."
+                    )
 
 c1, c2, c3, c4 = st.columns(4)
 steps = [
-    ("📸", "Upload Image", "Take a clear photo of your plant leaf"),
-    ("🤖", "AI Analysis", "EfficientNetB3 processes 54K+ features"),
-    ("🔬", "Detection", "Identifies from 38 disease classes"),
-    ("💊", "Get Treatment", "Instant treatment and prevention tips"),
+    ("📸", "Upload Image",
+     "Take a clear photo of your plant leaf"),
+    ("🤖", "AI Analysis",
+     "EfficientNetB3 processes 54K+ features"),
+    ("🔬", "Detection",
+     "Identifies from 38 disease classes"),
+    ("💊", "Get Treatment",
+     "Instant treatment and prevention tips"),
 ]
 for col, (icon, title, text) in zip([c1,c2,c3,c4], steps):
     with col:
@@ -434,6 +473,6 @@ st.markdown("""
     🌿 PlantGuard AI &nbsp;|&nbsp;
     Powered by EfficientNetB3 &nbsp;|&nbsp;
     96.45% Accuracy &nbsp;|&nbsp;
-    TensorFlow + Streamlit
+    ONNX Runtime + Streamlit
 </div>
 """, unsafe_allow_html=True)
