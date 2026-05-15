@@ -119,13 +119,15 @@ disease_info = {
 }
 
 def preprocess_image(image):
-    # Resize to 224x224
     image = image.convert("RGB")
     image = image.resize((224, 224))
     img_array = np.array(image).astype(np.float32)
     img_array = np.expand_dims(img_array, axis=0)
-    # EfficientNet preprocessing
-    img_array = (img_array - 127.5) / 127.5
+    # Correct EfficientNet preprocessing
+    # Same as tensorflow preprocess_input
+    img_array[..., 0] -= 103.939
+    img_array[..., 1] -= 116.779
+    img_array[..., 2] -= 123.68
     return img_array
 
 def predict_disease(image):
